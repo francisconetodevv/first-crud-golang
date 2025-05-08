@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
+
+	"github.com/gorilla/mux"
 )
 
 type user struct {
@@ -106,5 +109,112 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 // Search for a especif user
 func SearchUser(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
 
+	ID, erro := strconv.ParseUint(params["id"], 10, 32)
+	if erro != nil {
+		w.Write([]byte("Erro ao converter parâmetro para inteiro"))
+		return
+	}
+
+	db, erro := database.Connection()
+	if erro != nil {
+		w.Write([]byte("Erro ao conectar com o banco de dados!"))
+		return
+	}
+
+	linha, erro := db.Query("SELECT * FROM usuarios where id = ?", ID)
+	if erro != nil {
+		w.Write([]byte("Erro ao buscar usuário"))
+		return
+	}
+
+	var usuario user
+	if linha.Next() {
+		if erro := linha.Scan(&usuario.ID, &usuario.Nome, &usuario.Email); erro != nil {
+			w.Write([]byte("Erro ao escanear o usuario"))
+			return
+		}
+	}
+
+	if erro := json.NewEncoder(w).Encode(usuario); erro != nil {
+		w.Write([]byte("Erro ao converter o usuário para JSON!"))
+		return
+	}
+}
+
+// This function it updates the user columns
+func UpdateUser(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	ID, erro := strconv.ParseUint(params["id"], 10, 32)
+	if erro != nil {
+		w.Write([]byte("Erro ao converter o parâmetro para inteiro"))
+		return
+	}
+
+	bodyRequest, erro := ioutil.ReadAll(r.Body)
+	if erro != nil {
+		w.Write([]byte("Erro ao ler corpo da requisição"))
+		return
+	}
+
+	var usuario user
+	if erro := json.Unmarshal(bodyRequest, &usuario); erro != nil {
+		w.Write([]byte("Erro ao converter o usuário para struct"))
+		return
+	}
+
+	db, erro := database.Connection()
+	if erro != nil {
+		w.Write([]byte("Erro ao conectar ao banco de dados"))
+		return
+	}
+
+	defer db.Close()
+
+	statement, erro := db.Prepare("update usuarios set nome = ?, email = ? where id = ?")
+	if erro != nil {
+		w.Write([]byte("Erro ao criar o statement"))
+		return
+	}
+	defer statement.Close()
+
+	if _, erro := statement.Exec(usuario.Nome, usuario.Email, ID); erro != nil {
+		w.Write([]byte("Erro ao atualizar o usuário"))
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// This function is responsible to delete an user from the database
+func DeleteUser(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	ID, erro := strconv.ParseUint(params["id"], 10, 32)
+	if erro != nil {
+		w.Write([]byte("Erro ao converter o parâmetro para inteiro"))
+		return
+	}
+
+	db, erro := database.Connection()
+	if erro != nil {
+		w.Write([]byte("Erro ao conectar ao banco de dados"))
+		return
+	}
+	defer db.Close()
+
+	statement, erro := db.Prepare("delete from usuarios where id = ?")
+	if erro != nil {
+		w.Write([]byte("Erro ao criar statement"))
+		return
+	}
+	defer statement.Close()
+
+	if _, erro := statement.Exec(ID); erro != nil {
+		w.Write([]byte("Erro ao deletar o usuário"))
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
